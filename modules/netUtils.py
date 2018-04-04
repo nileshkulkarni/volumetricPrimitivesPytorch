@@ -9,3 +9,15 @@ def weightsInit(m):
   elif 'BatchNorm3d' in name:
     m.weight.data = m.weight.data.normal_(mean=1.0, std=0.02)
     m.bias.data = m.bias.data.zero_()
+
+def scaleWeightsFunc(scale, key):
+  def internal_scale(m):
+    # name = str(type(m))
+    try:
+      if m.note in key:
+        pdb.set_trace()
+        m.weight.data = m.weight.data.mul_(scale)
+        m.bias.data = m.bias.data.mul_(scale)
+    except AttributeError:
+      assert True
+  return internal_scale

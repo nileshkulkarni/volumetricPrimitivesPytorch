@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import modules.netUtils as nUtils
 import pdb
+from torch.autograd import Variable
 
 def meshGrid(minVal, maxVal, gridSize):
   # Xs, Ys, Zs = MeshGrid
@@ -95,19 +96,61 @@ class TransPredModule(nn.Module):
     x = x.view(x.size(0), -1)
     return x
 
+class ProbPredModule(nn.Module):
+  def __init__(self, params, outChannelsV, biasTerms=None):
+    super(ProbPredModule, self).__init__()
+    probLayer = nn.Conv3d(outChannelsV, 1, kernel_size=1)
+    self.probLrDecay = params.probLrDecay
+    probLayer.apply(nUtils.weightsInit)
+    probLayer.note = 'probPred'
+    self.gridBound = params.gridBound
+    biasTerms = biasTerms
+    if biasTerms is not None:
+      probLayer.bias.data = biasTerms.prob.clone()
+    self.probLayer = probLayer
+    self.sigmoid = nn.Sigmoid()
+    self.prune = params.prune
+
+  def forward(self, feature):
+    x = self.probLayer(feature)
+    x = x * self.probLrDecay
+    x = self.sigmoid(x)
+    stocastic_outputs = x.view(feature.size(0), -1).bernoulli()
+    # x = Variable(stocastic_outputs.data.clone())
+    x = stocastic_outputs
+    if self.prune ==0:
+      x = Variable(torch.FloatTensor(x.size()).fill_(1).type_as(x.data))
+    return x, stocastic_outputs
+
+
 class PrimitivePredModule(nn.Module):
   def __init__(self, params, outChannelsV, biasTerm):
     super(PrimitivePredModule, self).__init__()
     self.shapePred = ShapePredModule(params, outChannelsV, biasTerm)
     self.quatPred = QuatPredModule(params, outChannelsV, biasTerm)
     self.transPred = TransPredModule(params, outChannelsV, biasTerm)
+    self.probPred = ProbPredModule(params, outChannelsV, biasTerm)
 
   def forward(self, feature):
     shape = self.shapePred(feature)
     quat = self.quatPred(feature)
     transPred = self.transPred(feature)
-    output = torch.cat([shape, transPred, quat], dim = 1)
-    return output
+    probPred, stocastic_outputs = self.probPred(feature)
+    output = torch.cat([shape, transPred, quat, probPred], dim = 1)
+    return output, stocastic_outputs
+
+
+class ReinforceShapeReward(nn.Module):
+  def __init__(self, bMomentum, intrinsicReward, entropyWt=0):
+    super(ReinforceShapeReward, self).__init__()
+    self.baseline = 0
+    self.entropyWt = entropyWt
+    self.bMomentum = bMomentum
+    self.testMode = False
+  def forward(self, rewards):
+    self.baseline = self.bMomentum * self.baseline + (1 - self.bMomentum) * rewards.mean()
+    rewards = rewards - self.baseline
+    return rewards
 
 
 class Primitives(nn.Module):
@@ -118,7 +161,10 @@ class Primitives(nn.Module):
 
   def forward(self, feature):
     primitives = []
+    stocastic_actions = []
     for i, l in enumerate(self.primitivePredModules):
-      primitives.append(l(feature))
+      output, stocastic_outputs = l(feature)
+      primitives.append(output)
+      stocastic_actions.append(stocastic_outputs)
 
-    return torch.cat(primitives, dim=1)  ## BatchSize x nParts*10
+    return torch.cat(primitives, dim=1), stocastic_actions  ## BatchSize x nParts*11

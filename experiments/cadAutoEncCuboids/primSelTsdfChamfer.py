@@ -6,6 +6,7 @@ import torch.nn as nn
 import modules.volumeEncoder as vE
 import modules.netUtils as netUtils
 import modules.primitives as primitives
+
 from torch.autograd import Variable
 from data.cadConfigsChamfer import SimpleCadData
 from modules.losses import tsdf_pred, chamfer_loss
@@ -18,7 +19,7 @@ from modules.meshUtils import  savePredParts
 params = lambda x: 0
 
 params.learningRate = 0.001
-params.meshSaveIter = 1000
+params.meshSaveIter = 10
 params.numTrainIter = 20000
 params.batchSize = 32
 params.batchSizeVis = 4
@@ -35,12 +36,13 @@ params.imsave = 0
 params.shapeLrDecay = 0.01
 params.probLrDecay = 1
 params.gpu = 1
-params.visIter = 1000
+params.visIter = 10
+params.prune = 0
 # params.modelIter = 100000  # data loader reloads models after these many iterations
 params.modelIter = 2  # data loader reloads models after these many iterations
-params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
-# params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
-params.name = 'mainCadAutoEnc_chairs'
+# params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
+params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
+params.name = 'mainCadAutoEnc_reinforce'
 params.bMomentum = 0.9  # baseline momentum for reinforce
 params.entropyWt = 0
 params.nullReward = 0.0001
@@ -49,7 +51,7 @@ params.nSamplesChamfer = 150  # number of points we'll sample per part
 params.useCubOnly = 0
 params.usePretrain = 0
 params.normFactor = 'Surf'
-params.pretrainNet = 'chairChamferSurf_null_small_init_prob0pt0001_shape0pt01'
+params.pretrainNet = 'mainCadAutoEnc'
 params.pretrainLrShape = 0.01
 params.pretrainLrProb = 0.0001
 params.pretrainIter = 20000
@@ -78,31 +80,42 @@ for p in range(len(params.primTypes)):
     params.primTypesSurface.append(params.primTypes[p])
 
 
+
 cuboid_sampler = CuboidSurface(params.nSamplesChamfer, normFactor='Surf')
 criterion  = nn.L1Loss()
-def train(dataloader, netPred, optimizer, iter):
+def train(dataloader, netPred, reward_shaper, optimizer, iter):
   inputVol, tsdfGt, sampledPoints, loaded_cps = dataloader.forward()
   # pdb.set_trace()
   inputVol = Variable(inputVol.clone().cuda())
   tsdfGt = Variable(tsdfGt.cuda())
   sampledPoints = Variable(sampledPoints.cuda()) ## B x np x 3
-  predParts = netPred.forward(inputVol) ## B x nPars*10
-  predParts = predParts.view(predParts.size(0), -1, 10)
-
+  predParts, stocastic_actions = netPred.forward(inputVol) ## B x nPars*11
+  predParts = predParts.view(predParts.size(0), params.nParts, 11)
+  # pdb.set_trace()
+  pdb.set_trace()
   optimizer.zero_grad()
   tsdfPred= tsdf_pred(sampledPoints, predParts)
   # coverage = criterion(tsdfPred, tsdfGt)
-  coverage_b = tsdfPred.mean(dim=1)
+  coverage_b = tsdfPred.mean(dim=1).squeeze()
   coverage = coverage_b.mean()
-  consistency = chamfer_loss(predParts, dataloader, cuboid_sampler)
-  loss = coverage + params.chamferLossWt*consistency
+  consistency_b = chamfer_loss(predParts, dataloader, cuboid_sampler).squeeze()
+  consistency = consistency_b.mean()
+  loss = coverage_b + params.chamferLossWt*consistency_b
+
+  if params.prune ==1:
+    reward = -1*loss.view(-1,1).data
+    for action in stocastic_actions:
+      pdb.set_trace()
+      shaped_reward = reward + torch.sum(action.data)
+      shaped_reward = reward_shaper(shaped_reward)
+      action.reinforce(shaped_reward)
 
   if iter % 200 == 0:
     # pdb.set_trace()
     # plot3(sampledPoints[0].data.cpu())
     for i in range(4):
       savePredParts(predParts[i], '../train_preds/train_{}.obj'.format(i))
-
+  loss = torch.mean(loss)
   loss.backward()
   optimizer.step()
   return loss.data[0], coverage.data[0], consistency.data[0]
@@ -128,22 +141,38 @@ class Network(nn.Module):
 
     biasTerms.quat = torch.Tensor([1, 0, 0, 0])
     biasTerms.shape = torch.Tensor(params.nz).fill_(-3) / params.shapeLrDecay
-    biasTerms.prob = torch.Tensor(len(params.primTypes)).fill_(0)
+    biasTerms.prob = torch.Tensor(1).fill_(0)
     for p in range(len(params.primTypes)):
       if (params.primTypes[p] == 'Cu'):
         biasTerms.prob[p] = 2.5 / params.probLrDecay
 
     self.primitivesTable = primitives.Primitives(params, outChannels, biasTerms)
+    self.primitivesTable.apply(netUtils.weightsInit)
 
   def forward(self, x):
 
     encoding  = self.ve(x)
     features = self.fc_layers(encoding)
-    primitives = self.primitivesTable(features)
-    return primitives
+    primitives, stocastic_actions = self.primitivesTable(features)
+    return primitives, stocastic_actions
 
 netPred = Network(params)
 netPred.cuda()
+
+reward_shaper = primitives.ReinforceShapeReward(params.bMomentum,  params.intrinsicReward, params.entropyWt)
+reward_shaper.cuda()
+
+if params.usePretrain == 1:
+  updateShapeWtFunc = netUtils.scaleWeightsFunc(params.pretrainLrShape / params.shapeLrDecay, 'shapePred')
+  updateProbWtFunc = netUtils.scaleWeightsFunc(params.pretrainLrProb / params.probLrDecay, 'probPred')
+  pdb.set_trace()
+
+  # netPretrain = torch.load(os.path.join('../cachedir/snapshots', params.pretrainNet, 'iter{}.pkl'.format(params.pretrainIter)))
+  # netPred.load(netPretrain['state_dict'])
+  netPred.primitivesTable.apply(updateShapeWtFunc)
+  netPred.primitivesTable.apply(updateProbWtFunc)
+
+
 
 optimizer = torch.optim.Adam(netPred.parameters(), lr=params.learningRate)
 
@@ -152,7 +181,7 @@ nSamplePointsTest = params.gridSize**3
 
 loss = 0
 coverage = 0
-consitency = 0
+consistency = 0
 
 import torch.nn.functional as F
 
@@ -164,8 +193,8 @@ def tsdfSqModTest(x):
 
 print("Iter\tErr\tTSDF\tChamf")
 for iter  in range(params.numTrainIter):
-  print("{:10.7f}\t{:10.7f}\t{:10.7f}\t{:10.7f}".format(iter, loss, coverage, consitency))
-  loss, coverage, consitency = train(dataloader, netPred, optimizer, iter)
+  print("{:10.7f}\t{:10.7f}\t{:10.7f}\t{:10.7f}".format(iter, loss, coverage, consistency))
+  loss, coverage, consistency = train(dataloader, netPred, reward_shaper, optimizer, iter)
 
   if iter % params.visIter ==0:
     reshapeSize = torch.Size([params.batchSizeVis, 1, params.gridSize, params.gridSize, params.gridSize])
@@ -179,8 +208,8 @@ for iter  in range(params.numTrainIter):
 
     tsdfGtSq = tsdfSqModTest(tsdfGt)
     netPred.eval()
-    shapePredParams = netPred.forward(Variable(sample))
-    shapePredParams = shapePredParams.view(params.batchSizeVis, params.nParts, 10)
+    shapePredParams, _ = netPred.forward(Variable(sample))
+    shapePredParams = shapePredParams.view(params.batchSizeVis, params.nParts, 11   )
     netPred.train()
 
     if iter % params.meshSaveIter ==0:
