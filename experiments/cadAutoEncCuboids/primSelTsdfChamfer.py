@@ -18,7 +18,7 @@ from modules.meshUtils import  savePredParts
 params = lambda x: 0
 
 params.learningRate = 0.001
-params.meshSaveIter = 1000
+params.meshSaveIter = 10
 params.numTrainIter = 20000
 params.batchSize = 32
 params.batchSizeVis = 4
@@ -35,12 +35,12 @@ params.imsave = 0
 params.shapeLrDecay = 0.01
 params.probLrDecay = 1
 params.gpu = 1
-params.visIter = 1000
+params.visIter = 10
 # params.modelIter = 100000  # data loader reloads models after these many iterations
 params.modelIter = 2  # data loader reloads models after these many iterations
-params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
-# params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
-params.name = 'mainCadAutoEnc_chairs'
+# params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
+params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
+params.name = 'mainCadAutoEnc_reinforce'
 params.bMomentum = 0.9  # baseline momentum for reinforce
 params.entropyWt = 0
 params.nullReward = 0.0001
