@@ -43,15 +43,15 @@ from modules.quatUtils import  get_random_quat
 def rigidTsdf(points, trans, quat):
   p1 = translate_module(points, -1*trans)
   p2 = rotate_module(p1, quat)
-  return p2
+  # -- performs p_out = R'*p_in + t
 
 
-# -- performs p_out = R'*p_in + t
 def rigidPointsTransform(points, trans, quat):
   quatConj = quat_conjugate(quat)
   p1 = rotate_module(points, quatConj)
   p2 = translate_module(p1, trans)
   return p2
+return p2
 
 ## points is Batch_size x P x 3,  #Bx4 quat vectors
 def rotate_module(points, quat):

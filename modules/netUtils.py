@@ -15,9 +15,20 @@ def scaleWeightsFunc(scale, key):
     # name = str(type(m))
     try:
       if m.note in key:
-        pdb.set_trace()
+        print(key)
         m.weight.data = m.weight.data.mul_(scale)
         m.bias.data = m.bias.data.mul_(scale)
+    except AttributeError:
+      assert True
+  return internal_scale
+
+
+def scaleBiasWeights(scale, key):
+  def internal_scale(m):
+    # name = str(type(m))
+    try:
+      if m.note in key:
+        m.bias.data = m.bias.data.fill_(2.5/scale)
     except AttributeError:
       assert True
   return internal_scale

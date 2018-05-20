@@ -115,12 +115,13 @@ class ProbPredModule(nn.Module):
     x = self.probLayer(feature)
     x = x * self.probLrDecay
     x = self.sigmoid(x)
+
     stocastic_outputs = x.view(feature.size(0), -1).bernoulli()
     # x = Variable(stocastic_outputs.data.clone())
-    x = stocastic_outputs
+    selections = stocastic_outputs
     if self.prune ==0:
-      x = Variable(torch.FloatTensor(x.size()).fill_(1).type_as(x.data))
-    return x, stocastic_outputs
+      selections = Variable(torch.FloatTensor(x.size()).fill_(1).type_as(x.data))
+    return torch.cat([x ,selections], dim=1), stocastic_outputs
 
 
 class PrimitivePredModule(nn.Module):
@@ -140,9 +141,8 @@ class PrimitivePredModule(nn.Module):
     return output, stocastic_outputs
 
 
-class ReinforceShapeReward(nn.Module):
+class ReinforceShapeReward:
   def __init__(self, bMomentum, intrinsicReward, entropyWt=0):
-    super(ReinforceShapeReward, self).__init__()
     self.baseline = 0
     self.entropyWt = entropyWt
     self.bMomentum = bMomentum

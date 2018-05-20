@@ -16,10 +16,13 @@ from modules.plotUtils import  plot3, plot_parts, plot_cuboid
 import modules.marching_cubes as mc
 import modules.meshUtils as mUtils
 from modules.meshUtils import  savePredParts
+
+from tensorboardX import SummaryWriter
+
 params = lambda x: 0
 
 params.learningRate = 0.001
-params.meshSaveIter = 10
+params.meshSaveIter = 1000
 params.numTrainIter = 20000
 params.batchSize = 32
 params.batchSizeVis = 4
@@ -33,36 +36,49 @@ params.useBn = 1
 params.nParts = 20
 params.disp = 0
 params.imsave = 0
-params.shapeLrDecay = 0.01
-params.probLrDecay = 1
+
 params.gpu = 1
-params.visIter = 10
-params.prune = 0
+params.visIter = 100
+
+params.prune = 1
+params.usePretrain = 1
+
+if params.usePretrain:
+  params.shapeLrDecay = 0.5
+  params.probLrDecay = 0.2
+  params.nullReward = 8E-4
+else:
+  params.shapeLrDecay = 0.01
+  params.probLrDecay = 0.0001
+  params.nullReward = 0
+
 # params.modelIter = 100000  # data loader reloads models after these many iterations
 params.modelIter = 2  # data loader reloads models after these many iterations
-# params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
-params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
-params.name = 'mainCadAutoEnc_reinforce'
+params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
+# params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
+params.name = 'chairs_stage2_4'
 params.bMomentum = 0.9  # baseline momentum for reinforce
 params.entropyWt = 0
-params.nullReward = 0.0001
+
 params.nSamplePoints = 1000
 params.nSamplesChamfer = 150  # number of points we'll sample per part
 params.useCubOnly = 0
-params.usePretrain = 0
+
 params.normFactor = 'Surf'
-params.pretrainNet = 'mainCadAutoEnc'
+params.pretrainNet = 'chairs_stage1'
 params.pretrainLrShape = 0.01
 params.pretrainLrProb = 0.0001
-params.pretrainIter = 20000
+params.pretrainIter = 19000  #20000
 params.modelsDataDir = os.path.join('../cachedir/shapenet/chamferData/', params.synset)
 params.visDir = os.path.join('../cachedir/visualization/', params.name)
 params.visMeshesDir = os.path.join('../cachedir/visualization/meshes/', params.name)
 params.snapshotDir = os.path.join('../cachedir/snapshots/', params.name)
+  
+logger = SummaryWriter('../cachedir/logs/{}/'.format(params.name))
 
 dataloader = SimpleCadData(params)
-params.nz = 3
 params.primTypes = ['Cu']
+params.nz = 3
 params.nPrimChoices = len(params.primTypes)
 params.intrinsicReward = torch.Tensor(len(params.primTypes)).fill_(0)
 
@@ -79,7 +95,7 @@ params.primTypesSurface = []
 for p in range(len(params.primTypes)):
     params.primTypesSurface.append(params.primTypes[p])
 
-
+part_probs = []
 
 cuboid_sampler = CuboidSurface(params.nSamplesChamfer, normFactor='Surf')
 criterion  = nn.L1Loss()
@@ -90,9 +106,9 @@ def train(dataloader, netPred, reward_shaper, optimizer, iter):
   tsdfGt = Variable(tsdfGt.cuda())
   sampledPoints = Variable(sampledPoints.cuda()) ## B x np x 3
   predParts, stocastic_actions = netPred.forward(inputVol) ## B x nPars*11
-  predParts = predParts.view(predParts.size(0), params.nParts, 11)
+  predParts = predParts.view(predParts.size(0), params.nParts, 12)
   # pdb.set_trace()
-  pdb.set_trace()
+  # pdb.set_trace()
   optimizer.zero_grad()
   tsdfPred= tsdf_pred(sampledPoints, predParts)
   # coverage = criterion(tsdfPred, tsdfGt)
@@ -101,24 +117,34 @@ def train(dataloader, netPred, reward_shaper, optimizer, iter):
   consistency_b = chamfer_loss(predParts, dataloader, cuboid_sampler).squeeze()
   consistency = consistency_b.mean()
   loss = coverage_b + params.chamferLossWt*consistency_b
-
+  rewards = []
+  mean_reward = 0
   if params.prune ==1:
     reward = -1*loss.view(-1,1).data
-    for action in stocastic_actions:
-      pdb.set_trace()
-      shaped_reward = reward + torch.sum(action.data)
-      shaped_reward = reward_shaper(shaped_reward)
+    for i, action in enumerate(stocastic_actions):
+      shaped_reward = reward - params.nullReward*torch.sum(action.data)
+      shaped_reward = reward_shaper.forward(shaped_reward)
       action.reinforce(shaped_reward)
+      rewards.append(shaped_reward)
+
+    mean_reward = torch.stack(rewards).mean()
+
+  logger.add_scalar('rewards/', mean_reward, iter)
+  for i in range(params.nParts):
+    logger.add_scalar('{}/prob'.format(i), predParts[:,i,10].data.mean(), iter)
+
 
   if iter % 200 == 0:
     # pdb.set_trace()
     # plot3(sampledPoints[0].data.cpu())
     for i in range(4):
       savePredParts(predParts[i], '../train_preds/train_{}.obj'.format(i))
+
   loss = torch.mean(loss)
   loss.backward()
   optimizer.step()
-  return loss.data[0], coverage.data[0], consistency.data[0]
+
+  return loss.data[0], coverage.data[0], consistency.data[0], mean_reward
 
 
 import torch.nn as nn
@@ -147,7 +173,7 @@ class Network(nn.Module):
         biasTerms.prob[p] = 2.5 / params.probLrDecay
 
     self.primitivesTable = primitives.Primitives(params, outChannels, biasTerms)
-    self.primitivesTable.apply(netUtils.weightsInit)
+    # self.primitivesTable.apply(netUtils.weightsInit)
 
   def forward(self, x):
 
@@ -160,17 +186,19 @@ netPred = Network(params)
 netPred.cuda()
 
 reward_shaper = primitives.ReinforceShapeReward(params.bMomentum,  params.intrinsicReward, params.entropyWt)
-reward_shaper.cuda()
+# reward_shaper.cuda()
 
 if params.usePretrain == 1:
   updateShapeWtFunc = netUtils.scaleWeightsFunc(params.pretrainLrShape / params.shapeLrDecay, 'shapePred')
   updateProbWtFunc = netUtils.scaleWeightsFunc(params.pretrainLrProb / params.probLrDecay, 'probPred')
-  pdb.set_trace()
-
-  # netPretrain = torch.load(os.path.join('../cachedir/snapshots', params.pretrainNet, 'iter{}.pkl'.format(params.pretrainIter)))
-  # netPred.load(netPretrain['state_dict'])
+  updateBiasWtFunc = netUtils.scaleBiasWeights(params.probLrDecay, 'probPred')
+  load_path = os.path.join('../cachedir/snapshots', params.pretrainNet, 'iter{}.pkl'.format(params.pretrainIter))
+  netPretrain = torch.load(load_path)
+  netPred.load_state_dict(netPretrain)
+  print('Loading pretrained model from {}'.format(load_path))
   netPred.primitivesTable.apply(updateShapeWtFunc)
   netPred.primitivesTable.apply(updateProbWtFunc)
+  # netPred.primitivesTable.apply(updateBiasWtFunc)
 
 
 
@@ -182,7 +210,7 @@ nSamplePointsTest = params.gridSize**3
 loss = 0
 coverage = 0
 consistency = 0
-
+mean_reward = 0
 import torch.nn.functional as F
 
 def tsdfSqModTest(x):
@@ -191,10 +219,10 @@ def tsdfSqModTest(x):
 
 
 
-print("Iter\tErr\tTSDF\tChamf")
+print("Iter\tErr\tTSDF\tChamf\tMeanRe")
 for iter  in range(params.numTrainIter):
-  print("{:10.7f}\t{:10.7f}\t{:10.7f}\t{:10.7f}".format(iter, loss, coverage, consistency))
-  loss, coverage, consistency = train(dataloader, netPred, reward_shaper, optimizer, iter)
+  print("{:10.7f}\t{:10.7f}\t{:10.7f}\t{:10.7f}\t{:10.7f}".format(iter, loss, coverage, consistency, mean_reward))
+  loss, coverage, consistency, mean_reward = train(dataloader, netPred, reward_shaper, optimizer, iter)
 
   if iter % params.visIter ==0:
     reshapeSize = torch.Size([params.batchSizeVis, 1, params.gridSize, params.gridSize, params.gridSize])
@@ -209,7 +237,7 @@ for iter  in range(params.numTrainIter):
     tsdfGtSq = tsdfSqModTest(tsdfGt)
     netPred.eval()
     shapePredParams, _ = netPred.forward(Variable(sample))
-    shapePredParams = shapePredParams.view(params.batchSizeVis, params.nParts, 11   )
+    shapePredParams = shapePredParams.view(params.batchSizeVis, params.nParts, 12)
     netPred.train()
 
     if iter % params.meshSaveIter ==0:
@@ -230,5 +258,5 @@ for iter  in range(params.numTrainIter):
 
         mUtils.saveParts(pred_b, '{}/iter{}_inst{}_pred.obj'.format(params.visMeshesDir, iter, b))
 
-    if (iter % 1000) == 0 :
-      torch.save(netPred.state_dict() ,"{}/iter{}.pkl".format(params.snapshotDir,iter))
+  if (iter % 1000) == 0 :
+    torch.save(netPred.state_dict() ,"{}/iter{}.pkl".format(params.snapshotDir,iter))

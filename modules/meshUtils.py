@@ -179,16 +179,17 @@ def saveParts(predParts, outputFile, partIndsSpecific=[]):
 
   for i in partIndsSpecific:
     p = partIndsSpecific[i]
-    verts, faces = partVerticesAndFaces([predParts[p]])
-    verts = verts[0]
-    faces = faces + vertsOffset
+    if predParts[p][10] > 0.5:
+      verts, faces = partVerticesAndFaces([predParts[p]])
+      verts = verts[0]
+      faces = faces + vertsOffset
 
-    fout.write('usemtl m{}\n'.format(p))
-    for vx in range(verts.size(0)):
-      fout.write('v {} {} {}\n'.format(verts[vx][0], verts[vx][1], verts[vx][2]))
-    for fx in range(faces.size(0)):
-      fout.write('f {} {} {}\n'.format(faces[fx][0], faces[fx][1], faces[fx][2]))
-    vertsOffset = vertsOffset + verts.size(0)
+      fout.write('usemtl m{}\n'.format(p))
+      for vx in range(verts.size(0)):
+        fout.write('v {} {} {}\n'.format(verts[vx][0], verts[vx][1], verts[vx][2]))
+      for fx in range(faces.size(0)):
+        fout.write('f {} {} {}\n'.format(faces[fx][0], faces[fx][1], faces[fx][2]))
+      vertsOffset = vertsOffset + verts.size(0)
 
   fout.close()
 

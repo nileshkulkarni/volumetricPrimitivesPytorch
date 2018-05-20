@@ -30,7 +30,7 @@ def tsdf_transform(sample_points, part):
 
 
 def get_existence_weights(tsdf, part):
-  e = part[:,:,10:11]
+  e = part[:,:,11:12]
   e = e.expand(tsdf.size())
   e = (1-e)*10
   return e
@@ -50,7 +50,7 @@ def tsdf_pred(sampledPoints, predParts):  ## coverage loss
 
 
   existence_all = torch.cat(existence_weights, dim=2)
-  tsdf_all = torch.cat(tsdfParts, dim=2) #+ existence_all
+  tsdf_all = torch.cat(tsdfParts, dim=2) + existence_all
   tsdf_final = -1 * F.max_pool1d(-1 * tsdf_all, kernel_size=nParts)  # B x nP
   return tsdf_final
 
@@ -58,10 +58,10 @@ def tsdf_pred(sampledPoints, predParts):  ## coverage loss
 def primtive_surface_samples(predPart, cuboid_sampler):
   # B x 1 x 10
   shape = predPart[:, :, 0:3]  # B  x 1 x 3
-  probs = predPart[:,:,10:11] # B x 1 x 1
+  probs = predPart[:,:,11:12] # B x 1 x 1
   samples, imp_weights = cuboid_sampler.sample_points_cuboid(shape)
   probs = probs.expand(imp_weights.size())
-  imp_weights = imp_weights #* probs
+  imp_weights = imp_weights * probs
   return samples, imp_weights
 
 
