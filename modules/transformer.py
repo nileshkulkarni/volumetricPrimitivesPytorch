@@ -44,6 +44,7 @@ def rigidTsdf(points, trans, quat):
   p1 = translate_module(points, -1*trans)
   p2 = rotate_module(p1, quat)
   # -- performs p_out = R'*p_in + t
+  return p2
 
 
 def rigidPointsTransform(points, trans, quat):
@@ -51,7 +52,6 @@ def rigidPointsTransform(points, trans, quat):
   p1 = rotate_module(points, quatConj)
   p2 = translate_module(p1, trans)
   return p2
-return p2
 
 ## points is Batch_size x P x 3,  #Bx4 quat vectors
 def rotate_module(points, quat):
