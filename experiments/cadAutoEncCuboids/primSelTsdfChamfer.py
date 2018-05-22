@@ -45,12 +45,12 @@ params.gpu = 1
 params.visIter = 100
 
 params.prune = 1
-params.usePretrain = 1
+params.usePretrain = 0
 
 if params.usePretrain:
   params.shapeLrDecay = 0.5
   params.probLrDecay = 0.2
-  params.nullReward = 8E-4
+  params.nullReward = 8e-5
 else:
   params.shapeLrDecay = 0.01
   params.probLrDecay = 0.0001
@@ -60,7 +60,7 @@ else:
 params.modelIter = 2  # data loader reloads models after these many iterations
 params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
 # params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
-params.name = 'chairs_stage2_4'
+params.name = 'chairChamferSurf_null_small_init_prob0pt0001_shape0pt01_reinforce'
 params.bMomentum = 0.9  # baseline momentum for reinforce
 params.entropyWt = 0
 
@@ -69,10 +69,10 @@ params.nSamplesChamfer = 150  # number of points we'll sample per part
 params.useCubOnly = 0
 
 params.normFactor = 'Surf'
-params.pretrainNet = 'chairs_stage1'
+params.pretrainNet = 'chairChamferSurf_null_small_init_prob0pt0001_shape0pt01'
 params.pretrainLrShape = 0.01
 params.pretrainLrProb = 0.0001
-params.pretrainIter = 19000  #20000
+params.pretrainIter = 20000
 params.modelsDataDir = os.path.join('../cachedir/shapenet/chamferData/', params.synset)
 params.visDir = os.path.join('../cachedir/visualization/', params.name)
 params.visMeshesDir = os.path.join('../cachedir/visualization/meshes/', params.name)
@@ -233,8 +233,7 @@ for iter  in range(params.numTrainIter):
 
     sample, tsdfGt, sampledPoints = dataloader.forwardTest()
 
-
-    sampledPoints = sampledPoints[0:params.batchSizeVis].cuda()                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          oints[0:params.batchSizeVis].cuda()
+    sampledPoints = sampledPoints[0:params.batchSizeVis].cuda()
     sample = sample[0:params.batchSizeVis].cuda()
     tsdfGt = tsdfGt[0:params.batchSizeVis].view(reshapeSize)
 
