@@ -46,6 +46,7 @@ class SimpleCadData(object):
     self.load_all_mats()
     self.load_torch_tensors()
     self.outSampleTsfds = torch.Tensor(self.batchSize, self.nSamplePoints).fill_(0).cuda()
+    self.global_index = 0
 
   def load_all_mats(self):
     for ix in range(len(self.modelNames)):
@@ -138,6 +139,30 @@ class SimpleCadData(object):
     if self.iter % self.modelIter == 0:
       self.reloadShapes()
     self.iter  = self.iter + 1
+    outTsfds = self.loadedTsdfs.view(self.batchSize, self.gridSize**3)
+    outPoints = self.gridPoints.clone()
+    return self.loadedShapes, outTsfds, outPoints
+
+  def reloadShapesSequential(self):
+    ids = []
+    max_samples = len(self.all_volumes)
+    if max_samples < self.global_index:
+      return False
+
+    ids = torch.LongTensor([i for i in range(self.global_index, self.global_index+self.batchSize)])
+    ids = torch.clamp(ids, 0, max_samples-1).long().cuda()
+    self.global_index += self.batchSize
+    self.loadedVoxels = self.all_volumes[ids]
+    self.loadedTsdfs = self.all_tsdfs[ids]
+    self.loadedCPs = self.all_closetPoints[ids]
+    self.loadedSurfaceSamples = self.all_surfaceSamples[ids]
+    self.loadedShapes = self.loadedVoxels
+    return True
+
+  def forwardTestSequential(self):
+    status = self.reloadShapesSequential()
+    if not status:
+      return  None, None, None
     outTsfds = self.loadedTsdfs.view(self.batchSize, self.gridSize**3)
     outPoints = self.gridPoints.clone()
     return self.loadedShapes, outTsfds, outPoints
