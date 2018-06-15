@@ -2,9 +2,10 @@
 '''
 CUDA_VISIBLE_DEVICES=1 python cadAutoEncCuboids/primSelTsdfChamfer.py
 '''
+import pdb
 import os
 import sys
-sys.path.insert(0, '/home/nileshk/Research2/volumetricPrimitivesPytorch/')
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'../../')))
 import torch
 import torch.nn as nn
 import modules.volumeEncoder as vE
@@ -20,64 +21,74 @@ from modules.plotUtils import  plot3, plot_parts, plot_cuboid
 import modules.marching_cubes as mc
 import modules.meshUtils as mUtils
 from modules.meshUtils import  savePredParts
-
 from tensorboardX import SummaryWriter
+torch.manual_seed(0)
+from modules.config_utils import get_args
 
-params = lambda x: 0
 
-params.learningRate = 0.001
-params.meshSaveIter = 1000
-params.numTrainIter = 20000
-params.batchSize = 32
-params.batchSizeVis = 4
-params.visPower = 0.25
-params.lossPower = 2
-params.chamferLossWt = 1
-params.symLossWt = 1
-params.gridSize = 32
-params.gridBound = 0.5
-params.useBn = 1
-params.nParts = 20
-params.disp = 0
-params.imsave = 0
-
-params.gpu = 1
-params.visIter = 100
-
-params.prune = 1
-params.usePretrain = 0
-
-if params.usePretrain:
-  params.shapeLrDecay = 0.5
-  params.probLrDecay = 0.2
-  params.nullReward = 8e-5
-else:
-  params.shapeLrDecay = 0.01
-  params.probLrDecay = 0.0001
-  params.nullReward = 0
-
-# params.modelIter = 100000  # data loader reloads models after these many iterations
-params.modelIter = 2  # data loader reloads models after these many iterations
-params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
+# params = lambda x: 0
+#
+# params.learningRate = 0.001
+# params.meshSaveIter = 1000
+# params.numTrainIter = 30000
+# params.batchSize = 32
+# params.batchSizeVis = 4
+# params.visPower = 0.25
+# params.lossPower = 2
+# params.chamferLossWt = 1
+# params.symLossWt = 1
+# params.gridSize = 32
+# params.gridBound = 0.5
+# params.useBn = 1
+# params.nParts = 20
+# params.disp = 0
+# params.imsave = 0
+#
+# params.gpu = 1
+# params.visIter = 100
+#
+# params.prune = 1
+# params.usePretrain = 1
+#
+# if params.usePretrain:
+#   params.shapeLrDecay = 0.5
+#   params.probLrDecay = 0.2
+#   params.nullReward = 8e-5
+# else:
+#   params.shapeLrDecay = 0.01
+#   params.probLrDecay = 0.0001
+#   params.nullReward = 0
+#
+# # params.modelIter = 100000  # data loader reloads models after these many iterations
+# params.modelIter = 2  # data loader reloads models after these many iterations
+# #params.synset = 'chairs'  # chair:3001627, aero:2691156, table:4379243
 # params.synset = '03001628'  # chair:3001627, aero:2691156, table:4379243
-params.name = 'chairChamferSurf_null_small_init_prob0pt0001_shape0pt01_reinforce'
-params.bMomentum = 0.9  # baseline momentum for reinforce
-params.entropyWt = 0
+# params.name = 'chairChamferSurf_null_small_ft_prob0pt2_shape0pt5_null8em5_nan'
+# params.bMomentum = 0.9  # baseline momentum for reinforce
+# params.entropyWt = 0
+#
+# params.nSamplePoints = 1000
+# params.nSamplesChamfer = 150  # number of points we'll sample per part
+# params.useCubOnly = 0
+#
+# params.normFactor = 'Surf'
+# params.pretrainNet = 'chairChamferSurf_null_small_init_prob0pt0001_shape0pt01_reinforce'
+# params.pretrainLrShape = 0.01
+# params.pretrainLrProb = 0.0001
+# params.pretrainIter = 19000
+#
+# params.modelsDataDir = os.path.join('../cachedir/shapenet/chamferData/', params.synset)
+# params.visDir = os.path.join('../cachedir/visualization/', params.name)
+# params.visMeshesDir = os.path.join('../cachedir/visualization/meshes/', params.name)
+# params.snapshotDir = os.path.join('../cachedir/snapshots/', params.name)
 
-params.nSamplePoints = 1000
-params.nSamplesChamfer = 150  # number of points we'll sample per part
-params.useCubOnly = 0
+params = get_args()
 
-params.normFactor = 'Surf'
-params.pretrainNet = 'chairChamferSurf_null_small_init_prob0pt0001_shape0pt01'
-params.pretrainLrShape = 0.01
-params.pretrainLrProb = 0.0001
-params.pretrainIter = 20000
 params.modelsDataDir = os.path.join('../cachedir/shapenet/chamferData/', params.synset)
 params.visDir = os.path.join('../cachedir/visualization/', params.name)
 params.visMeshesDir = os.path.join('../cachedir/visualization/meshes/', params.name)
 params.snapshotDir = os.path.join('../cachedir/snapshots/', params.name)
-  
+
 logger = SummaryWriter('../cachedir/logs/{}/'.format(params.name))
 
 dataloader = SimpleCadData(params)
@@ -103,6 +114,8 @@ part_probs = []
 
 cuboid_sampler = CuboidSurface(params.nSamplesChamfer, normFactor='Surf')
 criterion  = nn.L1Loss()
+
+
 def train(dataloader, netPred, reward_shaper, optimizer, iter):
   inputVol, tsdfGt, sampledPoints, loaded_cps = dataloader.forward()
   # pdb.set_trace()
@@ -137,12 +150,12 @@ def train(dataloader, netPred, reward_shaper, optimizer, iter):
   for i in range(params.nParts):
     logger.add_scalar('{}/prob'.format(i), predParts[:,i,10].data.mean(), iter)
 
-
-  if iter % 200 == 0:
-    # pdb.set_trace()
-    # plot3(sampledPoints[0].data.cpu())
-    for i in range(4):
-      savePredParts(predParts[i], '../train_preds/train_{}.obj'.format(i))
+  #
+  # if iter % 200 == 0:
+  #   # pdb.set_trace()
+  #   # plot3(sampledPoints[0].data.cpu())
+  #   for i in range(4):
+  #     savePredParts(predParts[i], '../train_preds/train_{}.obj'.format(i))
 
   loss = torch.mean(loss)
   loss.backward()
@@ -192,7 +205,7 @@ netPred.cuda()
 reward_shaper = primitives.ReinforceShapeReward(params.bMomentum,  params.intrinsicReward, params.entropyWt)
 # reward_shaper.cuda()
 
-if params.usePretrain == 1:
+if params.usePretrain:
   updateShapeWtFunc = netUtils.scaleWeightsFunc(params.pretrainLrShape / params.shapeLrDecay, 'shapePred')
   updateProbWtFunc = netUtils.scaleWeightsFunc(params.pretrainLrProb / params.probLrDecay, 'probPred')
   updateBiasWtFunc = netUtils.scaleBiasWeights(params.probLrDecay, 'probPred')
@@ -215,11 +228,10 @@ loss = 0
 coverage = 0
 consistency = 0
 mean_reward = 0
-import torch.nn.functional as F
+
 
 def tsdfSqModTest(x):
   return torch.clamp(x,min=0).pow(2)
-
 
 
 
@@ -261,5 +273,5 @@ for iter  in range(params.numTrainIter):
 
         mUtils.saveParts(pred_b, '{}/iter{}_inst{}_pred.obj'.format(params.visMeshesDir, iter, b))
 
-  if (iter % 1000) == 0 :
+  if ((iter+1) % 1000) == 0 :
     torch.save(netPred.state_dict() ,"{}/iter{}.pkl".format(params.snapshotDir,iter))
