@@ -7,6 +7,8 @@ This official implementation can be found [here](https://github.com/shubhtuls/vo
 
 ![Teaser Image](https://shubhtuls.github.io/volumetricPrimitives/resources/images/teaser.png)
 
+
+
 ### 2) Training
 We provide code to train the abstraction models on ShapeNet categories.
 
@@ -27,6 +29,9 @@ After the first network is trained, we allow the learning of primitive existence
 # Stage 2
 cd experiments;
 python cadAutoEncCuboids/primSelTsdfChamfer.py --pretrainNet=chairChamferSurf_null_small_init_prob0pt0001_shape0pt01 --pretrainIter=2999 --disp=0 --gpu=1 --nParts=20 --nullReward=8e-5 --shapeLrDecay=0.5   --synset=03001627 --probLrDecay=0.2 --usePretrain=True  --numTrainIter=30000 --name=chairChamferSurf_null_small_ft_prob0pt2_shape0pt5_null8em5
-```
 
+```
+### 3) Requirements
+1. Python3.6
+2. PyTorch 0.1.12
 #### Thanks to [Ishan Misra](https://github.com/imisra) and [Shubham Tulsiani](https://github.com/shubhtuls/) for helping with the code base
